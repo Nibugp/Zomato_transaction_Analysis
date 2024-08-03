@@ -1,0 +1,193 @@
+Select * from product
+
+
+## 1. What is the total amount each customer spent on Zomato ? **
+
+Select a.user_id, sum(b.price) from sales a 
+
+join product b on a.product_id = b.product_id 
+
+group by user_id
+
+
+## 2. How many days has customer visited zomato ? **
+
+Select user_id, count(distinct((created_on))) distinct_days from sales
+
+group by user_id
+
+
+##3. What was the first product purchased by each customer ? **
+
+Select 
+ created_on,
+    SUBSTR(created_on, 7, 4) || '-' || SUBSTR(created_on, 1, 2) || '-' || SUBSTR(created_on, 4, 2) AS transformed_date
+FROM sales;
+
+Update 
+    sales
+SET created_on = SUBSTR(created_on, 7, 4) || '-' || SUBSTR(created_on, 1, 2) || '-' || SUBSTR(created_on, 4, 2) 
+
+SELECT * FROM sales;
+
+Select user_id, product_id from
+
+(Select *,rank() over(partition by user_id order by created_on) rnk from sales) c
+
+where rnk =1
+
+## 4. What is the most purchased item on the menu and how many times was it purchased by all customers ? **
+
+SELECT user_id, COUNT(product_id) as product_count
+FROM sales
+WHERE product_id = (
+    SELECT product_id
+    FROM sales
+    GROUP BY product_id
+    ORDER BY COUNT(*) DESC
+    LIMIT 1
+)
+GROUP BY user_id;
+
+##5. Which item was most popular for each customer ? **
+
+Select user_id, product_id from 
+(Select c.* , rank() over(partition by user_id order by count desc) rnk from
+(Select user_id , product_id ,count(product_id) count from sales
+group by user_id, product_id ) c) n
+
+where rnk =1
+
+
+##6. Which item was purchased first by the customer after they became the member ? **
+
+Select 
+ gold_signup_date,
+    SUBSTR(gold_signup_date, 7, 4) || '-' || SUBSTR(gold_signup_date, 1, 2) || '-' || SUBSTR(gold_signup_date, 4, 2) AS transformed_date
+FROM goldusers_signup;
+
+Update 
+    goldusers_signup
+SET gold_signup_date = SUBSTR(gold_signup_date, 7, 4) || '-' || SUBSTR(gold_signup_date, 1, 2) || '-' || SUBSTR(gold_signup_date, 4, 2) 
+
+SELECT * FROM goldusers_signup;
+
+
+Select user_id, product_id from
+(Select c.*, rank() over(partition by user_id order by created_on) rnk from
+(Select a.user_id , a.created_on, a.product_id, g.gold_signup_date from sales a join goldusers_signup g 
+on a.user_id = g.userid
+where a.created_on >= g.gold_signup_date) c ) n
+
+where rnk =1
+
+##7. Which item was purchased just before the customer became a member? **
+
+Select user_id, product_id from 
+
+(Select c.* , rank() over(partition by user_id order by created_on ) rnk from
+
+(Select a.user_id,a.product_id , a.created_on, g.gold_signup_date  from sales a 
+
+join goldusers_signup g  on a.user_id = g.userid
+
+where a.created_on < g.gold_signup_date ) c)
+
+where rnk = 1
+
+
+##8 What is the total orders and amount spent for each member before they became a member ? **
+
+Select a.user_id , count(a.product_id) total_orders , sum(p.price) amount_spent from sales a
+join goldusers_signup g  on a.user_id = g.userid
+join product p on p.product_id = a.product_id
+where a.created_on <  g.gold_signup_date
+group by user_id
+
+
+##9. If buying each product generates points for e.g. 5rs=2 zomato points and each product has different purchasing points
+for eg for p1 5rs =1 zomato point, for p2 10rs = 5 zomato point and p3 5rs= 1 zomato point
+
+calculate points collected by each customer and for which product most points have been  given till now . **
+
+Select user_id, sum(total_points) from
+(Select r.* , total_price/points total_points from(
+(Select e.* , case when product_id =1 then 5 when product_id=2 then 2 when product_id=3 then 5 else 0 end points from
+(Select c.user_id, c.product_id, sum(c.price) total_price from
+(Select a.user_id, a.product_id, b.price from sales a 
+join product b on a.product_id = b.product_id) c
+group by c.user_id, c.product_id) e) r))j
+group by user_id
+
+
+Select s.* , rank() over(order by points_earned desc)rnk from
+((Select product_id, sum(total_points) points_earned from
+(Select r.* , total_price/points total_points from(
+(Select e.* , case when product_id =1 then 5 when product_id=2 then 2 when product_id=3 then 5 else 0 end points from
+(Select c.user_id, c.product_id, sum(c.price) total_price from
+(Select a.user_id, a.product_id, b.price from sales a 
+join product b on a.product_id = b.product_id) c
+group by c.user_id, c.product_id) e) r))j
+group by product_id)s)
+
+
+##10 In the first one year after a customer joins the gold program (including their joining date) irrespective of what the customer purchased they earn 5 zomato points for every 10 rs spent
+
+Who earned more 1 or 3 and what was their points earnings in their first year **
+
+
+Select c.*, (c.price)*0.5 total_points from(
+(Select a.user_id, a.created_on, a.product_id, g.gold_signup_date, b.price from sales a 
+join product b on a.product_id= b.product_id
+join goldusers_signup g on a.user_id= g.userid
+Where a.created_on >= g.gold_signup_date and a.created_on<=DATE(g.gold_signup_date,'+1 year')
+group by a.user_id, a.product_id) c)
+
+
+##11. rank all the transactions of the customers **
+
+Select c.*, rank()over(partition by c.user_id order by c.price desc) rnk from
+(Select a.user_id, a.product_id,  b.price from sales a 
+join product b on a.product_id= b.product_id
+group by a.user_id,a.product_id)c
+
+##12. rank all the transactions for each member whenever they are a zomato gold member for every non gold member marked as na **
+
+SELECT e.*, 
+       CASE 
+           WHEN rnk IS NULL THEN 'na' 
+           ELSE rnk 
+       END AS rnkk
+FROM (
+    SELECT c.*, 
+           RANK() OVER (PARTITION BY c.user_id ORDER BY c.created_on DESC) AS rnk
+    FROM (
+        SELECT a.user_id, a.created_on, a.product_id, g.gold_signup_date
+        FROM sales a
+        LEFT JOIN goldusers_signup g 
+        ON a.user_id = g.userid AND a.created_on >= g.gold_signup_date
+    ) c
+) e;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
